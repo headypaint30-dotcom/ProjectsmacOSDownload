@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Projects Classifier — Auto-sort your macOS files</title>
+<meta name="description" content="A background daemon that watches ~/Projects and automatically sorts every file into the right subfolder. Pure bash, no app, no GUI.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#ffffff;--bg2:#f7f7f6;--bg3:#f0efed;
+  --text:#1a1a18;--text2:#5a5a56;--text3:#9a9a94;
+  --border:rgba(0,0,0,0.1);--border2:rgba(0,0,0,0.18);
+  --blue:#185FA5;--blue-light:#E6F1FB;--blue-dark:#0C447C;
+  --green:#3B6D11;--green-light:#EAF3DE;
+  --mono:'SF Mono','Fira Mono','Consolas',monospace;
+  --radius:8px;--radius-lg:12px;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#18181b;--bg2:#232328;--bg3:#2a2a30;
+    --text:#f0f0ee;--text2:#a0a09a;--text3:#60605a;
+    --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.18);
+    --blue-light:#0c2a45;--green-light:#1a2e0a;
+  }
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:var(--text);background:var(--bg);font-size:15px;line-height:1.6}
+
+/* NAV */
+nav{display:flex;align-items:center;justify-content:space-between;padding:12px 32px;border-bottom:0.5px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:20;backdrop-filter:blur(8px)}
+.logo{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;text-decoration:none;color:var(--text)}
+.logo-icon{width:28px;height:28px;background:var(--blue-light);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--blue);font-size:16px}
+.nav-links{display:flex;align-items:center;gap:4px}
+.nav-links a{font-size:13px;color:var(--text2);text-decoration:none;padding:5px 10px;border-radius:6px}
+.nav-links a:hover{background:var(--bg2);color:var(--text)}
+.nav-gh{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text);text-decoration:none;padding:6px 14px;border:0.5px solid var(--border2);border-radius:7px;background:var(--bg)}
+.nav-gh:hover{background:var(--bg2)}
+@media(max-width:680px){.nav-links{display:none}}
+
+/* HERO */
+.hero{padding:72px 32px 52px;max-width:720px;margin:0 auto}
+.hero-eyebrow{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:500;color:var(--green);background:var(--green-light);padding:4px 12px;border-radius:99px;margin-bottom:24px;letter-spacing:.02em}
+.hero h1{font-size:38px;font-weight:500;line-height:1.18;margin-bottom:16px;letter-spacing:-.025em}
+.hero h1 em{font-style:normal;color:var(--blue)}
+.hero-desc{font-size:15px;color:var(--text2);line-height:1.75;max-width:480px;margin-bottom:32px}
+.hero-actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:44px}
+.btn-dl{display:inline-flex;align-items:center;gap:8px;background:var(--blue);color:#fff;font-size:13px;font-weight:500;padding:10px 20px;border-radius:8px;text-decoration:none}
+.btn-dl:hover{background:var(--blue-dark)}
+.btn-docs{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--text);padding:10px 20px;border-radius:8px;text-decoration:none;border:0.5px solid var(--border2);background:var(--bg)}
+.btn-docs:hover{background:var(--bg2)}
+
+/* TERMINAL */
+.term{background:#0f1117;border-radius:12px;overflow:hidden;font-family:var(--mono);font-size:12.5px;line-height:1.65;max-width:580px}
+.term-bar{background:#1e2029;padding:10px 14px;display:flex;align-items:center;gap:6px}
+.term-dot{width:11px;height:11px;border-radius:50%}
+.term-body{padding:18px 20px;color:#e2e8f0}
+.t-dim{color:#718096}.t-g{color:#68d391}.t-b{color:#63b3ed}.t-y{color:#f6e05e}
+
+/* DIVIDER */
+hr{border:none;border-top:0.5px solid var(--border);margin:0 0 60px}
+
+/* SECTION */
+.section{max-width:720px;margin:0 auto;padding:0 32px 64px}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.07em;color:var(--text3);margin-bottom:8px;text-transform:uppercase}
+.section h2{font-size:22px;font-weight:500;margin-bottom:10px;letter-spacing:-.01em}
+.section .lead{font-size:14px;color:var(--text2);line-height:1.75;margin-bottom:28px;max-width:520px}
+code{font-family:var(--mono);font-size:12px;background:var(--bg2);padding:2px 6px;border-radius:4px;border:0.5px solid var(--border)}
+pre{font-family:var(--mono);font-size:12.5px;background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius);padding:14px 16px;overflow-x:auto;line-height:1.65;margin-top:10px}
+pre code{background:none;border:none;padding:0;font-size:inherit}
+kbd{font-family:var(--mono);font-size:11px;background:var(--bg);border:0.5px solid var(--border2);border-radius:4px;padding:1px 5px}
+
+/* FOLDER GRID */
+.folder-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media(max-width:500px){.folder-grid{grid-template-columns:repeat(2,1fr)}}
+.f-card{background:var(--bg2);border:0.5px solid var(--border);border-radius:10px;padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center}
+.f-card i{font-size:22px}
+.f-card .f-name{font-size:12px;font-weight:500}
+.f-card .f-ext{font-size:10px;color:var(--text3);line-height:1.4}
+.fc-code{color:#185FA5}.fc-web{color:#0F6E56}.fc-notes{color:#854F0B}.fc-docs{color:#993C1D}
+.fc-design{color:#533AB7}.fc-data{color:#3B6D11}.fc-media{color:#993556}.fc-inbox{color:#888780}
+
+/* STEPS */
+.steps{display:flex;flex-direction:column;gap:12px}
+.step{display:grid;grid-template-columns:32px 1fr;gap:16px;align-items:start;background:var(--bg);border:0.5px solid var(--border);border-radius:10px;padding:16px 18px}
+.step-n{width:24px;height:24px;border-radius:50%;background:var(--bg2);font-size:12px;font-weight:500;color:var(--text2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.step h3{font-size:14px;font-weight:500;margin-bottom:5px}
+.step p{font-size:13px;color:var(--text2);line-height:1.6}
+
+/* COMMANDS */
+.cmd-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:500px){.cmd-grid{grid-template-columns:1fr}}
+.cmd{background:var(--bg2);border:0.5px solid var(--border);border-radius:8px;padding:12px 14px}
+.cmd code{background:none;border:none;padding:0;font-size:12.5px;color:var(--blue);display:block;margin-bottom:4px}
+.cmd p{font-size:12px;color:var(--text2)}
+
+/* TABS */
+.tabs{display:flex;border-bottom:0.5px solid var(--border);margin-bottom:20px}
+.tab{font-size:13px;padding:8px 14px;cursor:pointer;color:var(--text2);border:none;border-bottom:2px solid transparent;margin-bottom:-0.5px;background:none;font-family:inherit}
+.tab.on{color:var(--text);border-bottom-color:var(--text);font-weight:500}
+.tab-pane{display:none}.tab-pane.on{display:block}
+
+/* ICONS APPLY */
+.icon-apply{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:500px){.icon-apply{grid-template-columns:1fr}}
+.icon-step{display:flex;align-items:flex-start;gap:12px;background:var(--bg2);border:0.5px solid var(--border);border-radius:9px;padding:12px 14px}
+.icon-step-n{width:22px;height:22px;background:var(--bg);border-radius:50%;border:0.5px solid var(--border2);font-size:11px;font-weight:500;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text2)}
+.icon-step h4{font-size:13px;font-weight:500;margin-bottom:3px}
+.icon-step p{font-size:12px;color:var(--text2);line-height:1.5}
+
+/* SECURITY */
+.security-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:500px){.security-grid{grid-template-columns:1fr}}
+.sec-card{border:0.5px solid var(--border);border-radius:9px;padding:14px 16px;background:var(--bg)}
+.sec-card h4{font-size:13px;font-weight:500;margin-bottom:5px;display:flex;align-items:center;gap:7px}
+.sec-card p{font-size:12px;color:var(--text2);line-height:1.6}
+
+/* COMPAT */
+.compat{display:flex;flex-direction:column;gap:8px}
+.compat-row{display:flex;align-items:center;gap:14px;padding:10px 14px;border:0.5px solid var(--border);border-radius:8px;background:var(--bg)}
+.compat-icon{font-size:16px;width:22px;text-align:center;flex-shrink:0}
+.compat-name{font-size:13px;font-weight:500;flex:1}
+.compat-note{font-size:12px;color:var(--text2);text-align:right}
+@media(max-width:580px){.compat-note{display:none}}
+.ok{color:#3B6D11}.maybe{color:#854F0B}.no{color:#A32D2D}
+
+/* CTA BANNER */
+.cta-banner{background:var(--bg2);border:0.5px solid var(--border);border-radius:12px;padding:36px 32px;text-align:center;max-width:720px;margin:0 auto 64px}
+.cta-banner h2{font-size:22px;font-weight:500;margin-bottom:8px}
+.cta-banner p{font-size:14px;color:var(--text2);margin-bottom:22px}
+
+/* FOOTER */
+footer{border-top:0.5px solid var(--border);padding:20px 32px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text3)}
+footer a{color:var(--text2);text-decoration:none}
+footer a:hover{color:var(--text)}
+@media(max-width:500px){footer{flex-direction:column;gap:6px;text-align:center}}
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="logo" href="#">
+    <div class="logo-icon"><i class="ti ti-folder-open" aria-hidden="true"></i></div>
+    Projects Classifier
+  </a>
+  <div class="nav-links">
+    <a href="#install">Install</a>
+    <a href="#usage">Usage</a>
+    <a href="#icons">Icons</a>
+    <a href="#security">Security</a>
+    <a href="#compat">Compatibility</a>
+  </div>
+  <a class="nav-gh" href="https://github.com/ProjectsmacOS-OFF/ProjectsmacOSDownload" target="_blank">
+    <i class="ti ti-brand-github" aria-hidden="true"></i> GitHub
+  </a>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-eyebrow"><i class="ti ti-apple" aria-hidden="true"></i> macOS · Apple Silicon</div>
+  <h1>Drop a file.<br><em>It sorts itself.</em></h1>
+  <p class="hero-desc">A background daemon watches <code>~/Projects</code> and moves every file to the right subfolder in 3 seconds. Pure bash, no app, no GUI.</p>
+  <div class="hero-actions">
+    <a class="btn-dl" href="https://github.com/ProjectsmacOS-OFF/ProjectsmacOSDownload" target="_blank">
+      <i class="ti ti-download" aria-hidden="true"></i> Download from GitHub
+    </a>
+    <a class="btn-docs" href="#install">
+      <i class="ti ti-book-2" aria-hidden="true"></i> Read the docs
+    </a>
+  </div>
+  <div class="term">
+    <div class="term-bar">
+      <div class="term-dot" style="background:#ff5f57"></div>
+      <div class="term-dot" style="background:#febc2e"></div>
+      <div class="term-dot" style="background:#28c840"></div>
+      <span style="font-size:11px;color:#4a5568;margin-left:8px">zsh — ~/Projects</span>
+    </div>
+    <div class="term-body">
+      <div><span class="t-g">❯</span> projects-sort --dry-run</div>
+      <div style="margin-top:10px;color:#4a5568">┌──────────────────────────────────────┐</div>
+      <div style="color:#4a5568">│ <span class="t-y">projects-sort — simulation (dry)</span>  │</div>
+      <div style="color:#4a5568">└──────────────────────────────────────┘</div>
+      <div style="margin-top:10px">
+        <div><span class="t-dim">  report.pdf     </span><span class="t-dim">→</span>  <span class="t-b">Docs/</span></div>
+        <div><span class="t-dim">  app.py         </span><span class="t-dim">→</span>  <span class="t-b">Coding/</span></div>
+        <div><span class="t-dim">  mockup.fig     </span><span class="t-dim">→</span>  <span class="t-b">Design/</span></div>
+        <div><span class="t-dim">  dataset.csv    </span><span class="t-dim">→</span>  <span class="t-b">Data/</span></div>
+        <div><span class="t-dim">  unknown.xyz    </span><span class="t-dim">→</span>  <span class="t-dim">_inbox/</span></div>
+      </div>
+      <div style="margin-top:12px"><span class="t-g">✓</span> <span class="t-dim">5 files would be moved. Run without --dry-run to confirm.</span></div>
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<!-- CATEGORIES -->
+<section class="section" id="categories">
+  <div class="eyebrow">Structure</div>
+  <h2>8 categories, auto-created</h2>
+  <p class="lead">The installer creates these folders inside <code>~/Projects/</code>. Every file dropped at the root gets routed by extension — unknown types go to <code>_inbox</code>.</p>
+  <div class="folder-grid">
+    <div class="f-card"><i class="ti ti-code fc-code" aria-hidden="true"></i><div class="f-name">Coding</div><div class="f-ext">.py .js .ts .sh .go .swift</div></div>
+    <div class="f-card"><i class="ti ti-world fc-web" aria-hidden="true"></i><div class="f-name">Web</div><div class="f-ext">.html .css .vue .svelte</div></div>
+    <div class="f-card"><i class="ti ti-notes fc-notes" aria-hidden="true"></i><div class="f-name">Notes</div><div class="f-ext">.md .txt .pages .rst</div></div>
+    <div class="f-card"><i class="ti ti-file-text fc-docs" aria-hidden="true"></i><div class="f-name">Docs</div><div class="f-ext">.pdf .docx .pptx .xlsx</div></div>
+    <div class="f-card"><i class="ti ti-palette fc-design" aria-hidden="true"></i><div class="f-name">Design</div><div class="f-ext">.fig .sketch .xd .psd</div></div>
+    <div class="f-card"><i class="ti ti-table fc-data" aria-hidden="true"></i><div class="f-name">Data</div><div class="f-ext">.csv .json .yaml .sql</div></div>
+    <div class="f-card"><i class="ti ti-photo fc-media" aria-hidden="true"></i><div class="f-name">Media</div><div class="f-ext">.png .mp4 .svg .mp3</div></div>
+    <div class="f-card"><i class="ti ti-inbox fc-inbox" aria-hidden="true"></i><div class="f-name">_inbox</div><div class="f-ext">everything else</div></div>
+  </div>
+</section>
+
+<hr>
+
+<!-- INSTALL -->
+<section class="section" id="install">
+  <div class="eyebrow">Getting started</div>
+  <h2>Install in 3 steps</h2>
+  <p class="lead">One script sets up everything — folders, daemon, shell aliases. The only dependency is Homebrew, and <code>fswatch</code> installs automatically if missing.</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-n">1</div>
+      <div>
+        <h3>Clone the repository</h3>
+        <p>Download the project anywhere on your Mac.</p>
+        <pre><code>git clone https://github.com/ProjectsmacOS-OFF/ProjectsmacOSDownload
+cd ProjectsmacOSDownload</code></pre>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-n">2</div>
+      <div>
+        <h3>Run the installer</h3>
+        <p>Creates <code>~/Projects/</code>, copies scripts to <code>~/.projects-system/</code>, registers the launchd daemon, and adds shell aliases to <code>.zshrc</code>.</p>
+        <pre><code>bash install.sh</code></pre>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-n">3</div>
+      <div>
+        <h3>Reload your shell</h3>
+        <p>Makes the new aliases available in your current terminal session.</p>
+        <pre><code>source ~/.zshrc</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- USAGE -->
+<section class="section" id="usage">
+  <div class="eyebrow">Usage</div>
+  <h2>Terminal commands</h2>
+  <p class="lead">The daemon runs silently after login — you don't need to do anything. These commands let you control it and sort files manually.</p>
+  <div class="cmd-grid">
+    <div class="cmd"><code>projects</code><p>Navigate to ~/Projects</p></div>
+    <div class="cmd"><code>projects-sort</code><p>Sort all unsorted files now</p></div>
+    <div class="cmd"><code>projects-sort --dry-run</code><p>Preview without moving anything</p></div>
+    <div class="cmd"><code>projects-watch-status</code><p>Check if the daemon is running</p></div>
+    <div class="cmd"><code>projects-watch-start</code><p>Start the background daemon</p></div>
+    <div class="cmd"><code>projects-watch-stop</code><p>Stop the background daemon</p></div>
+  </div>
+  <h3 style="font-size:16px;font-weight:500;margin-top:32px;margin-bottom:8px">Customize categories</h3>
+  <p style="font-size:14px;color:var(--text2);line-height:1.75;margin-bottom:12px">Edit <code>~/.projects-system/config.sh</code> — format is <code>"CATEGORY|ext1,ext2"</code>. Rules run top-to-bottom, first match wins.</p>
+  <pre><code>"Arduino|ino,pde"
+"Config|env,yaml,toml,ini,cfg"</code></pre>
+  <p style="font-size:12px;color:var(--text3);margin-top:10px">After editing, restart the daemon: <code>projects-watch-stop && projects-watch-start</code></p>
+  <h3 style="font-size:16px;font-weight:500;margin-top:32px;margin-bottom:8px">Logs</h3>
+  <pre><code>tail -f ~/Library/Logs/projects-classifier.log</code></pre>
+</section>
+
+<hr>
+
+<!-- FOLDER ICONS -->
+<section class="section" id="icons">
+  <div class="eyebrow">Folder icons</div>
+  <h2>Apply custom icons to Finder</h2>
+  <p class="lead">The <code>icons/</code> folder contains <code>.icns</code> files for each category. Applying them is optional but gives <code>~/Projects</code> a polished look in Finder.</p>
+  <div class="tabs">
+    <button class="tab on" onclick="sw(this,'finder')">Finder — no terminal</button>
+    <button class="tab" onclick="sw(this,'terminal')">Terminal — all at once</button>
+  </div>
+  <div class="tab-pane on" id="pane-finder">
+    <div class="icon-apply">
+      <div class="icon-step"><div class="icon-step-n">1</div><div><h4>Open icon in Preview</h4><p>Double-click <code>Coding.icns</code> — it opens in Preview automatically.</p></div></div>
+      <div class="icon-step"><div class="icon-step-n">2</div><div><h4>Copy the image</h4><p>Press <kbd>⌘A</kbd> then <kbd>⌘C</kbd> to select and copy.</p></div></div>
+      <div class="icon-step"><div class="icon-step-n">3</div><div><h4>Open folder info</h4><p>Right-click <code>~/Projects/Coding</code> in Finder → Get Info <kbd>⌘I</kbd>.</p></div></div>
+      <div class="icon-step"><div class="icon-step-n">4</div><div><h4>Paste the icon</h4><p>Click the small folder icon in the top-left of the info panel (blue border appears), then press <kbd>⌘V</kbd>. Repeat for each folder.</p></div></div>
+    </div>
+  </div>
+  <div class="tab-pane" id="pane-terminal">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px">Install <code>fileicon</code> then apply all icons at once from the repo root:</p>
+    <pre><code>brew install fileicon
+
+fileicon set ~/Projects/_inbox  icons/_inbox.icns
+fileicon set ~/Projects/Coding  icons/Coding.icns
+fileicon set ~/Projects/Data    icons/Data.icns
+fileicon set ~/Projects/Design  icons/Design.icns
+fileicon set ~/Projects/Docs    icons/Docs.icns
+fileicon set ~/Projects/Media   icons/Media.icns
+fileicon set ~/Projects/Notes   icons/Notes.icns
+fileicon set ~/Projects/Web     icons/Web.icns</code></pre>
+    <p style="font-size:12px;color:var(--text3);margin-top:10px">To remove an icon: <code>fileicon rm ~/Projects/Coding</code></p>
+  </div>
+</section>
+
+<hr>
+
+<!-- SECURITY -->
+<section class="section" id="security">
+  <div class="eyebrow">Security</div>
+  <h2>What runs on your machine</h2>
+  <p class="lead">This tool is entirely local — no network requests, no telemetry, no remote servers. Here's what each part actually does.</p>
+  <div class="security-grid">
+    <div class="sec-card">
+      <h4><i class="ti ti-eye" style="color:var(--blue);font-size:16px" aria-hidden="true"></i> watch.sh (daemon)</h4>
+      <p>Runs as your user. Watches <code>~/Projects</code> with <code>fswatch</code>. No ports, no network. Calls <code>classify.sh</code> on new files.</p>
+    </div>
+    <div class="sec-card">
+      <h4><i class="ti ti-arrows-sort" style="color:var(--green);font-size:16px" aria-hidden="true"></i> classify.sh</h4>
+      <p>Moves files within <code>~/Projects</code> only. Never touches files already in a subfolder. Adds a timestamp suffix on name conflicts.</p>
+    </div>
+    <div class="sec-card">
+      <h4><i class="ti ti-settings" style="color:#854F0B;font-size:16px" aria-hidden="true"></i> config.sh</h4>
+      <p>Sourced by every script. Treat it like any shell file in your home directory — don't paste untrusted content into it.</p>
+    </div>
+    <div class="sec-card">
+      <h4><i class="ti ti-terminal" style="color:#533AB7;font-size:16px" aria-hidden="true"></i> install.sh</h4>
+      <p>Writes to <code>~/.projects-system/</code>, <code>.zshrc</code>, and <code>LaunchAgents/</code>. Always inspect before running: <code>cat install.sh</code></p>
+    </div>
+  </div>
+  <p style="font-size:12px;color:var(--text3);margin-top:14px">Found a vulnerability? Open a <a href="https://github.com/ProjectsmacOS-OFF/ProjectsmacOSDownload/security/advisories/new" target="_blank">GitHub Security Advisory</a> — please don't open a public issue for security bugs.</p>
+</section>
+
+<hr>
+
+<!-- COMPATIBILITY -->
+<section class="section" id="compat">
+  <div class="eyebrow">Compatibility</div>
+  <h2>Supported configurations</h2>
+  <p class="lead">Built and tested on Apple Silicon. Intel Macs work with a minor PATH fix documented below.</p>
+  <div class="compat">
+    <div class="compat-row">
+      <div class="compat-icon ok"><i class="ti ti-circle-check" aria-hidden="true"></i></div>
+      <div class="compat-name">Apple Silicon M1 / M2 / M3 — macOS 12+</div>
+      <div class="compat-note">Fully tested · primary target</div>
+    </div>
+    <div class="compat-row">
+      <div class="compat-icon ok"><i class="ti ti-circle-check" aria-hidden="true"></i></div>
+      <div class="compat-name">Intel Mac — macOS 12+</div>
+      <div class="compat-note">Replace <code>/opt/homebrew/bin</code> → <code>/usr/local/bin</code> in plist if daemon fails</div>
+    </div>
+    <div class="compat-row">
+      <div class="compat-icon maybe"><i class="ti ti-circle-minus" aria-hidden="true"></i></div>
+      <div class="compat-name">macOS 11 Big Sur</div>
+      <div class="compat-note">Likely works · not tested</div>
+    </div>
+    <div class="compat-row">
+      <div class="compat-icon no"><i class="ti ti-circle-x" aria-hidden="true"></i></div>
+      <div class="compat-name">macOS 10.15 or earlier</div>
+      <div class="compat-note">Not supported — requires zsh as default shell</div>
+    </div>
+    <div class="compat-row">
+      <div class="compat-icon no"><i class="ti ti-circle-x" aria-hidden="true"></i></div>
+      <div class="compat-name">Linux</div>
+      <div class="compat-note">Not supported — <code>launchd</code> is macOS-only</div>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- UNINSTALL -->
+<section class="section" id="uninstall">
+  <div class="eyebrow">Uninstall</div>
+  <h2>Remove everything cleanly</h2>
+  <p class="lead">Your <code>~/Projects/</code> folder and its contents are always left untouched.</p>
+  <pre><code>launchctl unload ~/Library/LaunchAgents/com.user.projects-classifier.plist
+rm ~/Library/LaunchAgents/com.user.projects-classifier.plist
+rm -rf ~/.projects-system</code></pre>
+  <p style="font-size:13px;color:var(--text2);margin-top:12px">Then open <code>~/.zshrc</code> and delete the <code># Projects system</code> block manually.</p>
+</section>
+
+<!-- CTA BANNER -->
+<div style="padding:0 32px">
+  <div class="cta-banner">
+    <h2>Ready to try it?</h2>
+    <p>One command and your Projects folder sorts itself — forever.</p>
+    <a class="btn-dl" href="https://github.com/ProjectsmacOS-OFF/ProjectsmacOSDownload" target="_blank">
+      <i class="ti ti-brand-github" aria-hidden="true"></i> View on GitHub &amp; Download
+    </a>
+  </div>
+</div>
+
+<footer>
+  <span>MIT License · built with bash + launchd</span>
+  <a href="https://github.com/ProjectsmacOS-OFF/ProjectsmacOSDownload" target="_blank">github.com/headypaint30-dotcom/ProjectsmacOSDownload</a>
+</footer>
+
+<script>
+function sw(btn,id){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('pane-'+id).classList.add('on');
+}
+</script>
+</body>
+</html>
